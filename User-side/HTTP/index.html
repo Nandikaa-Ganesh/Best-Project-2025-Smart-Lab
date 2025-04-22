@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RP4 Occupancy Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: linear-gradient(to right, #3a0ca3, #7209b7, #4361ee);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .glass {
+      backdrop-filter: blur(20px);
+      background-color: rgba(240, 240, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .entry {
+      background-color: rgba(255, 255, 255, 0.1);
+      border-left: 4px solid #c084fc;
+      padding: 12px;
+      margin-bottom: 12px;
+      border-radius: 10px;
+    }
+
+    .pulse {
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-6 text-white">
+
+  <div class="w-full max-w-3xl glass rounded-3xl p-10">
+    <h1 class="text-4xl font-bold mb-6 text-center drop-shadow-lg text-purple-200">
+      Smart Lab Occupancy Dashboard
+    </h1>
+
+    <div id="output" class="bg-white bg-opacity-10 text-purple-100 p-6 rounded-xl font-mono text-sm md:text-base min-h-[120px] max-h-[400px] overflow-y-auto border border-purple-100 border-opacity-20">
+      <span class="pulse">Fetching and decoding data...</span>
+    </div>
+
+    <div class="text-center mt-6 text-xs text-purple-200 text-opacity-70">
+      Auto-refreshes every <strong>10 seconds</strong>
+    </div>
+  </div>
+
+  <script>
+    // Pi ID to Lab Mapping
+    const labMap = {
+      "100000001da0d336": { name: "GRD Lab", seats: 80 },
+      "100000001da0d337": { name: "Hardware Lab", seats: 40 },
+      "100000001da0d338": { name: "Software Programming Lab", seats: 30 },
+      "100000001da0d339": { name: "OSLab", seats: 30 }
+    };
+
+    async function fetchAndDecode() {
+      try {
+        const start = performance.now();
+
+        const res = await fetch('http://192.168.48.224:5000/data');
+        const json = await res.json();
+        const raw = json.encoded;
+
+        const end = performance.now();
+        console.log(`Data fetch took ${(end - start).toFixed(2)} ms`);
+
+        const output = document.getElementById("output");
+        output.innerHTML = '';
+
+        if (!raw || raw.trim() === "" || raw.trim().toLowerCase() === "no data") {
+          output.innerHTML = `<div class="entry text-yellow-200">No occupancy data available at the moment.</div>`;
+          return;
+        }
+
+        const entries = raw
+          .split("#")
+          .filter(e => e.trim().length > 0)
+          .map(entry => {
+            const [pi_id, num_faces, ts] = entry.split(";");
+            return { pi_id, num_faces, ts };
+          })
+          .sort((a, b) => b.ts.localeCompare(a.ts)); // newest first
+
+        entries.forEach(({ pi_id, num_faces, ts }) => {
+          const year = ts.slice(0, 4);
+          const month = ts.slice(4, 6);
+          const day = ts.slice(6, 8);
+          const hour = ts.slice(8, 10);
+          const minute = ts.slice(10, 12);
+          const second = ts.slice(12, 14);
+          const ms = ts.slice(14, 17);
+
+          const dateObj = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}.${ms}`);
+          const localeTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const formatted = `${dateObj.toLocaleDateString()}, ${localeTime.slice(0, -3)}.${ms} ${localeTime.slice(-2)}`;
+          const timestamp = formatted;
+
+          const faces = parseInt(num_faces);
+          const labInfo = labMap[pi_id] || { name: "Unknown Lab", seats: 0 };
+          const vacant = labInfo.seats - faces;
+
+          const div = document.createElement("div");
+          div.className = "entry";
+          div.innerHTML = `
+            <strong>Lab:</strong> ${labInfo.name}<br>
+            <strong>Faces Detected:</strong> ${faces}<br>
+            <strong>Vacant Seats:</strong> ${vacant}<br>
+            <strong>Time:</strong> ${timestamp}
+          `;
+          output.appendChild(div);
+        });
+
+      } catch (e) {
+        document.getElementById("output").innerText = "Failed to load data.";
+        console.error(e);
+      }
+    }
+
+
+
+    fetchAndDecode();
+    setInterval(fetchAndDecode, 10000);
+  </script>
+
+</body>
+</html>
